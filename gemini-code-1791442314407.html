@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YouBike 2.0 即時地圖</title>
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <!-- Leaflet MarkerCluster CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+  />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+  />
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body, html {
+      width: 100%;
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+    .status-panel {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 12px 18px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .status-panel h2 {
+      font-size: 16px;
+      margin-bottom: 4px;
+      color: #333;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .badge-rent {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+    .badge-return {
+      background: #e3f2fd;
+      color: #1565c0;
+    }
+    .popup-title {
+      font-size: 15px;
+      font-weight: bold;
+      margin-bottom: 6px;
+    }
+    .refresh-btn {
+      margin-top: 8px;
+      width: 100%;
+      padding: 6px 12px;
+      background: #ffd000;
+      color: #333;
+      font-weight: bold;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .refresh-btn:hover {
+      background: #ffc400;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="status-panel">
+    <h2>🚲 台北市 YouBike 2.0 即時動態</h2>
+    <div id="info">資料讀取中...</div>
+    <button class="refresh-btn" onclick="fetchYouBikeData()">重新整理資料</button>
+  </div>
+
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <!-- Leaflet MarkerCluster JS -->
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <script>
+    // 1. 初始化地圖（台北車站為中心點，縮放等級設為 14）
+    const map = L.map('map').setView([25.0478, 121.5170], 14);
+
+    // 載入 OpenStreetMap 底圖
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // 建立 MarkerCluster 群組，避免站點過多時卡頓
+    const markers = L.markerClusterGroup();
+    map.addLayer(markers);
+
+    // 台北市 YouBike 2.0 API 端點 (無須金鑰、支援 CORS)
+    const API_URL = 'https://tcgbusfs.blob.core.windows.net/dotapp/youbike/v2/youbike_immediate.json';
+
+    async function fetchYouBikeData() {
+      const infoEl = document.getElementById('info');
+      infoEl.innerText = '更新資料中...';
+
+      try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error('網路回應不正常');
+        const stations = await response.json();
+
+        // 清除地圖上原有的 markers
+        markers.clearLayers();
+
+        stations.forEach(station => {
+          const lat = parseFloat(station.latitude);
+          const lng = parseFloat(station.longitude);
+
+          if (!isNaN(lat) && !isNaN(lng)) {
+            const popupContent = `
+              <div class="popup-title">${station.sna.replace('YouBike2.0_', '')}</div>
+              <p>地址：${station.ar}</p>
+              <p style="margin-top: 6px;">
+                <span class="badge badge-rent">可借：${station.available_rent_bikes} 台</span>
+                <span class="badge badge-return">可還：${station.available_return_bikes} 位</span>
+              </p>
+              <p style="font-size: 11px; color: #888; margin-top: 6px;">更新時間：${station.updateTime}</p>
+            `;
+
+            const marker = L.marker([lat, lng]).bindPopup(popupContent);
+            markers.addLayer(marker);
+          }
+        });
+
+        infoEl.innerHTML = `已載入 <b>${stations.length}</b> 個站點<br>最後更新：${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        console.error('取得資料失敗:', error);
+        infoEl.innerText = '讀取失敗，請稍後重試。';
+      }
+    }
+
+    // 頁面載入時抓取一次資料
+    fetchYouBikeData();
+  </script>
+</body>
+</html>
